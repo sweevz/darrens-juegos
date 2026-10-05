@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Darren's Juegos — Basketball Stars</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#10131a;color:#fff;font-family:Arial,sans-serif;display:flex;justify-content:center;min-height:100vh}
+.wrap{width:min(1000px,100%);padding:18px}.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+h1{margin:0;font-size:28px}.badge{background:#ff8a00;padding:7px 12px;border-radius:20px;font-weight:bold}
+.card{background:#191e28;border:1px solid #303746;border-radius:18px;padding:14px;box-shadow:0 12px 35px #0006}
+canvas{width:100%;height:auto;display:block;background:#d89a55;border-radius:12px;touch-action:none}
+.controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}.controls button{flex:1;min-width:120px}
+button{border:0;border-radius:12px;padding:12px 16px;background:#2b3342;color:white;font-weight:bold;font-size:15px;cursor:pointer}
+button:hover{background:#3a4558}.shoot{background:#ff7b00}.shoot:hover{background:#ff941f}
+.info{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:10px 2px 0;font-size:14px;color:#c9cfda}
+#status{font-weight:bold;color:#fff}.help{margin-top:12px;color:#aeb6c4;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><h1>🏀 Darren's Juegos</h1><div class="badge">Basketball Stars</div></div>
+  <div class="card">
+    <canvas id="game" width="960" height="540"></canvas>
+    <div class="info"><span>Score: <b id="score">0</b></span><span>Opponent: <b id="opp">0</b></span><span>Time: <b id="time">60</b>s</span><span id="status">Aim with your mouse/touch, then shoot!</span></div>
+    <div class="controls">
+      <button class="shoot" id="shoot">🏀 SHOOT</button>
+      <button id="steal">🛡️ STEAL</button>
+      <button id="restart">↻ RESTART</button>
+    </div>
+    <div class="help">Keyboard: Arrow keys/WASD move • Space shoots • E attempts a steal. On touch, drag upward from the player to aim.</div>
+  </div>
+</div>
+<script>
+const c=document.getElementById('game'),x=c.getContext('2d');
+const scoreEl=document.getElementById('score'),oppEl=document.getElementById('opp'),timeEl=document.getElementById('time'),statusEl=document.getElementById('status');
+let p,ball,opp,score,oscore,time,gameOver,last,shot,keys={},touchStart=null;
+
+function reset(){
+ p={x:245,y:415,r:24,s:230}; opp={x:715,y:415,r:24,s:150};
+ ball={x:p.x+30,y:p.y-25,r:10,owner:'p'}; score=0;oscore=0;time=60;gameOver=false;shot=null;last=performance.now();
+ statusEl.textContent='Aim with your mouse/touch, then shoot!';
+ updateUI();
+}
+function updateUI(){scoreEl.textContent=score;oppEl.textContent=oscore;timeEl.textContent=Math.ceil(time)}
+function court(){
+ x.fillStyle='#d89a55';x.fillRect(0,0,c.width,c.height);
+ x.fillStyle='#c78446';x.fillRect(0,405,c.width,135);
+ x.strokeStyle='#fff9';x.lineWidth=5;x.strokeRect(25,30,910,480);
+ x.beginPath();x.arc(480,270,75,0,Math.PI*2);x.stroke();
+ x.beginPath();x.moveTo(480,30);x.lineTo(480,510);x.stroke();
+ // hoops
+ for(const hx of [70,890]){
+   x.strokeStyle='#fff';x.lineWidth=7;x.strokeRect(hx-8,205,16,115);
+   x.beginPath();x.arc(hx+(hx<480?30:-30),320,18,0,Math.PI*2);x.stroke();
+   x.strokeStyle='#ffffff88';x.lineWidth=2;
+   for(let i=0;i<5;i++){x.beginPath();x.moveTo(hx+(hx<480?12:-12)+i*6*(hx<480?1:-1),320);x.lineTo(hx+(hx<480?18:-18)+i*4*(hx<480?1:-1),365);x.stroke()}
+ }
+}
+function player(a,color,label){
+ x.fillStyle=color;x.beginPath();x.arc(a.x,a.y,a.r,0,Math.PI*2);x.fill();
+ x.fillStyle='#fff';x.font='bold 14px Arial';x.textAlign='center';x.fillText(label,a.x,a.y+5);
+ x.fillStyle='#222';x.fillRect(a.x-25,a.y+27,50,7);x.fillStyle='#56d364';x.fillRect(a.x-25,a.y+27,50,7);
+}
+function draw(){
+ court(); player(p,'#2674ff','YOU');player(opp,'#e84242','CPU');
+ x.fillStyle='#111';x.beginPath();x.arc(ball.x,ball.y,ball.r,0,Math.PI*2);x.fill();
+ x.strokeStyle='#ff9a00';x.lineWidth=3;x.beginPath();x.arc(ball.x,ball.y,ball.r-2,0,Math.PI*2);x.stroke();
+ if(shot){
+   x.strokeStyle='#fff9';x.lineWidth=3;x.beginPath();x.moveTo(p.x,p.y-10);x.lineTo(shot.tx,shot.ty);x.stroke();
+   x.fillStyle='#fff';x.font='14px Arial';x.fillText('POWER '+Math.round(shot.power*100)+'%',p.x+50,p.y-30);
+ }
+}
+function move(dt){
+ if(gameOver)return;
+ let dx=(keys.ArrowRight||keys.d?1:0)-(keys.ArrowLeft||keys.a?1:0);
+ let dy=(keys.ArrowDown||keys.s?1:0)-(keys.ArrowUp||keys.w?1:0);
+ if(dx||dy){let l=Math.hypot(dx,dy);p.x+=dx/l*p.s*dt;p.y+=dy/l*p.s*dt}
+ p.x=Math.max(110,Math.min(420,p.x));p.y=Math.max(120,Math.min(470,p.y));
+ if(ball.owner==='p'){ball.x=p.x+28;ball.y=p.y-25}
+ else {ball.x=opp.x-28;ball.y=opp.y-25}
+ // simple CPU movement
+ if(ball.owner==='p') {opp.x += (p.x-opp.x)*dt*.25}
+ else {opp.x += (480-opp.x)*dt*.18}
+ opp.x=Math.max(540,Math.min(850,opp.x));
+}
+function shoot(){
+ if(gameOver||ball.owner!=='p'||shot)return;
+ let tx=70,ty=280;
+ if(touchStart){tx=touchStart.tx;ty=touchStart.ty}
+ let dx=tx-p.x,dy=ty-p.y,dist=Math.hypot(dx,dy);
+ let power=Math.max(.25,Math.min(1,dist/400));
+ shot={t:0,dur:0.75+(.35*(1-power)),tx,ty,power};
+}
+function resolveShot(){
+ let nearHoop=Math.hypot(70-p.x,280-p.y);
+ let chance=.42+shot.power*.5-Math.min(.2,nearHoop/1800);
+ if(Math.random()<chance){score+=nearHoop<250?2:3;statusEl.textContent='Buckets! 🔥'}
+ else statusEl.textContent='Missed! Get the ball back.';
+ ball.owner='cpu';shot=null;
+ setTimeout(()=>{if(!gameOver){ball.owner='p';statusEl.textContent='Your ball — shoot again!'}},700);
+ updateUI();
+}
+function steal(){
+ if(gameOver||ball.owner!=='cpu')return;
+ let d=Math.hypot(p.x-opp.x,p.y-opp.y);
+ if(d<95 && Math.random()<.72){ball.owner='p';statusEl.textContent='Steal! 🏀';}
+ else statusEl.textContent='Missed steal!';
+}
+function loop(now){
+ let dt=Math.min(.035,(now-last)/1000);last=now;
+ if(!gameOver){
+   time-=dt;if(time<=0){time=0;gameOver=true;statusEl.textContent=score>oscore?'YOU WIN! 🏆':score<oscore?'CPU WINS!':'TIE GAME!';}
+   move(dt);
+   if(shot){shot.t+=dt;let q=Math.min(1,shot.t/shot.dur);let sx=p.x+28,sy=p.y-25;
+     ball.x=sx+(70-sx)*q;ball.y=sy+(280-sy)*q-130*Math.sin(q*Math.PI);
+     if(q>=1)resolveShot();
+   }
+   // CPU scores periodically when it has possession
+   if(ball.owner==='cpu'&&!shot&&Math.random()<dt*.55){oscore+=Math.random()<.55?2:3;statusEl.textContent='CPU scored!';ball.owner='p';updateUI()}
+   updateUI();
+ }
+ draw();requestAnimationFrame(loop)
+}
+document.addEventListener('keydown',e=>{keys[e.key]=true;if(e.code==='Space'){e.preventDefault();shoot()}if(e.key.toLowerCase()==='e')steal()});
+document.addEventListener('keyup',e=>keys[e.key]=false);
+document.getElementById('shoot').onclick=shoot;document.getElementById('steal').onclick=steal;document.getElementById('restart').onclick=reset;
+c.addEventListener('pointerdown',e=>{const r=c.getBoundingClientRect();const mx=(e.clientX-r.left)*c.width/r.width,my=(e.clientY-r.top)*c.height/r.height;touchStart={tx:mx,ty:my}});
+c.addEventListener('pointerup',e=>{if(touchStart){shoot();touchStart=null}});
+reset();requestAnimationFrame(loop);
+</script>
+</body>
+</html>
